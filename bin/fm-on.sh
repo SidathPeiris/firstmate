@@ -25,13 +25,20 @@
 # configured SendEnv patterns. The remote entrypoint executes the selected
 # command under an empty environment with only its fixed runtime values.
 #
-# ServerAliveInterval/ServerAliveCountMax arm dead-peer detection so a vanished
-# peer (a reboot, a dropped link) becomes a bounded ssh failure (exit 255)
-# instead of an indefinite hang on a half-open TCP connection. The remote
-# sshd answers keepalive probes independently of whatever the remote command
-# is doing, so a legitimately long-but-alive remote command is never falsely
-# killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
-# defaults; the worst-case detection window is roughly interval * count.
+# ConnectTimeout bounds the initial TCP connection phase when a host is truly
+# unreachable or powered off, failing fast instead of hanging at the OS-level
+# TCP connect timeout (which can exceed a minute). FM_SSH_CONNECT_TIMEOUT
+# overrides the default; 10 seconds is long enough for a slow-but-reachable
+# host and short enough to fail fast on an offline one.
+#
+# ServerAliveInterval/ServerAliveCountMax arm dead-peer detection for an
+# already-established connection, so a vanished peer (a reboot, a dropped link)
+# becomes a bounded ssh failure (exit 255) instead of an indefinite hang on a
+# half-open TCP connection. The remote sshd answers keepalive probes
+# independently of whatever the remote command is doing, so a legitimately
+# long-but-alive remote command is never falsely killed. FM_SSH_ALIVE_INTERVAL
+# and FM_SSH_ALIVE_COUNT_MAX override the defaults; the worst-case detection
+# window is roughly interval * count.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,10 +111,13 @@ ROOT_B64=$(printf '%s' "$ROOT" | encode_base64)
 HOME_B64=$(printf '%s' "$HOME_PATH" | encode_base64)
 ARGV_B64=$(printf '%s\0' "$COMMAND" "$@" | encode_base64)
 SSH_BIN=${FM_SSH_BIN:-ssh}
+CONNECT_TIMEOUT=${FM_SSH_CONNECT_TIMEOUT:-10}
 ALIVE_INTERVAL=${FM_SSH_ALIVE_INTERVAL:-15}
 ALIVE_COUNT_MAX=${FM_SSH_ALIVE_COUNT_MAX:-3}
+case "$CONNECT_TIMEOUT" in ''|*[!0-9]*) die "FM_SSH_CONNECT_TIMEOUT must be a positive integer: $CONNECT_TIMEOUT" ;; esac
 case "$ALIVE_INTERVAL" in ''|*[!0-9]*) die "FM_SSH_ALIVE_INTERVAL must be a positive integer: $ALIVE_INTERVAL" ;; esac
 case "$ALIVE_COUNT_MAX" in ''|*[!0-9]*) die "FM_SSH_ALIVE_COUNT_MAX must be a positive integer: $ALIVE_COUNT_MAX" ;; esac
+[ "$CONNECT_TIMEOUT" -gt 0 ] || die "FM_SSH_CONNECT_TIMEOUT must be a positive integer: $CONNECT_TIMEOUT"
 [ "$ALIVE_INTERVAL" -gt 0 ] || die "FM_SSH_ALIVE_INTERVAL must be a positive integer: $ALIVE_INTERVAL"
 [ "$ALIVE_COUNT_MAX" -gt 0 ] || die "FM_SSH_ALIVE_COUNT_MAX must be a positive integer: $ALIVE_COUNT_MAX"
 
@@ -115,6 +125,7 @@ SSH_ARGS=(
   -o ForwardAgent=no
   -o ClearAllForwardings=yes
   -o 'SendEnv=-*'
+  -o "ConnectTimeout=$CONNECT_TIMEOUT"
   -o "ServerAliveInterval=$ALIVE_INTERVAL"
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
   -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
