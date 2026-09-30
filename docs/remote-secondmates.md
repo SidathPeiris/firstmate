@@ -42,9 +42,9 @@ Every path that provisions or launches one refuses a host that is not ready for 
 `fm-on.sh` adds its own protections:
 
 - On every call, it also disables agent forwarding, forwarding setup, and configured `SendEnv` patterns.
-- It arms bounded SSH dead-peer detection, so a vanished host (a reboot, a dropped link) fails within a bounded window instead of hanging indefinitely.
+- It bounds both the initial connection attempt and dead-peer detection after connection, so an unreachable host fails promptly and a vanished host (a reboot, a dropped link) does not hang indefinitely.
 
-Its [script header](../bin/fm-on.sh) owns the keepalive defaults and environment overrides.
+Its [script header](../bin/fm-on.sh) owns the timeout defaults and environment overrides, including the 10-second initial connection timeout.
 
 ### Remote clone and entrypoint
 
